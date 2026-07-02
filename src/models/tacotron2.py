@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 
+from configs.config import Config
+
 from models.embedding import CharacterEmbedding
 from models.encoder import Encoder
 from models.prenet import Prenet
@@ -9,105 +11,52 @@ from models.location_attention import LocationSensitiveAttention
 from models.decoder_rnn import DecoderRNN
 from models.mel_projection import MelProjection
 from models.stop_token import StopTokenPredictor
+from models.postnet import PostNet
 
 
 class Tacotron2(nn.Module):
     """
-    Simplified Tacotron2 Architecture
+    Simplified Tacotron2
     """
 
-    def __init__(
-        self,
-        vocab_size,
-        embedding_dim=256,
-        encoder_dim=256,
-        attention_dim=128,
-        decoder_dim=256,
-        n_mels=80
-    ):
+    def __init__(self):
         super().__init__()
 
-        ##################################
-        # Encoder
-        ##################################
+        ############################################
+        # Text Encoder
+        ############################################
 
-        self.embedding = CharacterEmbedding(
-            vocab_size=vocab_size,
-            embedding_dim=embedding_dim
-        )
+        self.embedding = CharacterEmbedding()
+        self.encoder = Encoder()
 
-        self.encoder = Encoder(
-            embedding_dim=embedding_dim,
-            hidden_size=encoder_dim // 2
-        )
+        ############################################
+        # Decoder
+        ############################################
 
-        ##################################
-        # Decoder Components
-        ##################################
+        self.prenet = Prenet()
+        self.attention_rnn = AttentionRNN()
+        self.attention = LocationSensitiveAttention()
+        self.decoder_rnn = DecoderRNN()
 
-        self.prenet = Prenet(
-            input_dim=n_mels,
-            hidden_dim=decoder_dim
-        )
+        ############################################
+        # Output Heads
+        ############################################
 
-        self.attention_rnn = AttentionRNN(
-            prenet_dim=decoder_dim,
-            encoder_dim=encoder_dim,
-            attention_rnn_dim=decoder_dim
-        )
+        self.mel_projection = MelProjection()
+        self.stop_token = StopTokenPredictor()
+        self.postnet = PostNet()
 
-        self.attention = LocationSensitiveAttention(
-            encoder_dim=encoder_dim,
-            attention_rnn_dim=decoder_dim,
-            attention_dim=attention_dim
-        )
-
-        self.decoder_rnn = DecoderRNN(
-            attention_dim=decoder_dim,
-            encoder_dim=encoder_dim,
-            decoder_dim=decoder_dim
-        )
-
-        self.mel_projection = MelProjection(
-            decoder_dim=decoder_dim,
-            n_mels=n_mels
-        )
-
-        self.stop_predictor = StopTokenPredictor(
-            decoder_dim=decoder_dim
-        )
-
-        self.n_mels = n_mels
-        self.encoder_dim = encoder_dim
-
-    def forward(
+    def initialize_decoder_states(
         self,
-        text,
-        max_decoder_steps=100
+        encoder_outputs,
     ):
+        """
+        Initialize all decoder states.
+        """
 
-        ##################################
-        # Encoder
-        ##################################
-
-        embedded = self.embedding(text)
-
-        encoder_outputs = self.encoder(
-            embedded
-        )
-
-        batch_size = text.size(0)
-        device = text.device
-
-        ##################################
-        # Initial States
-        ##################################
-
-        previous_mel = torch.zeros(
-            batch_size,
-            self.n_mels,
-            device=device
-        )
+        batch_size = encoder_outputs.size(0)
+        text_length = encoder_outputs.size(1)
+        device = encoder_outputs.device
 
         attention_hidden, attention_cell = \
             self.attention_rnn.initialize_states(
@@ -123,25 +72,76 @@ class Tacotron2(nn.Module):
 
         context = torch.zeros(
             batch_size,
-            self.encoder_dim,
+            Config.ENCODER_DIM,
             device=device
         )
 
         attention_weights = torch.zeros(
             batch_size,
-            encoder_outputs.size(1),
+            text_length,
             device=device
         )
 
-        ##################################
-        # Decoder Loop
-        ##################################
+        previous_mel = torch.zeros(
+            batch_size,
+            Config.N_MELS,
+            device=device
+        )
+
+        return (
+            attention_hidden,
+            attention_cell,
+            decoder_hidden,
+            decoder_cell,
+            context,
+            attention_weights,
+            previous_mel
+        )
+
+    def forward(
+        self,
+        text,
+        target_mels=None,
+    ):
+        """
+        Forward pass.
+        """
+
+        ############################################
+        # Encoder
+        ############################################
+
+        embeddings = self.embedding(text)
+
+        encoder_outputs = self.encoder(
+            embeddings
+        )
+
+        (
+            attention_hidden,
+            attention_cell,
+            decoder_hidden,
+            decoder_cell,
+            context,
+            attention_weights,
+            previous_mel
+        ) = self.initialize_decoder_states(
+            encoder_outputs
+        )
 
         mel_outputs = []
         stop_outputs = []
-        alignments = []
 
-        for _ in range(max_decoder_steps):
+        ############################################
+        # Decoder Loop
+        ############################################
+
+        if target_mels is not None:
+            max_steps = target_mels.size(2)
+        else:
+            max_steps = Config.MAX_DECODER_STEPS
+
+        for step in range(max_steps):
 
             prenet_output = self.prenet(
                 previous_mel
@@ -171,30 +171,45 @@ class Tacotron2(nn.Module):
                 )
 
             mel_frame = self.mel_projection(
-                decoder_hidden
+                decoder_hidden,
+                context
             )
 
-            stop = self.stop_predictor(
-                decoder_hidden
+            stop_prediction = self.stop_token(
+                decoder_hidden,
+                context
             )
 
             mel_outputs.append(
-                mel_frame.unsqueeze(1)
+                mel_frame.unsqueeze(2)
             )
 
             stop_outputs.append(
-                stop.unsqueeze(1)
+                stop_prediction
             )
 
-            alignments.append(
-                attention_weights.unsqueeze(1)
-            )
+            ############################################
+            # Teacher Forcing
+            ############################################
 
-            previous_mel = mel_frame
+            if target_mels is not None:
+
+                previous_mel = target_mels[:, :, step]
+
+            else:
+
+                previous_mel = mel_frame
+
+                if torch.sigmoid(stop_prediction).item() > Config.STOP_THRESHOLD:
+                    break
+
+        ############################################
+        # Stack Decoder Outputs
+        ############################################
 
         mel_outputs = torch.cat(
             mel_outputs,
-            dim=1
+            dim=2
         )
 
         stop_outputs = torch.cat(
@@ -202,13 +217,26 @@ class Tacotron2(nn.Module):
             dim=1
         )
 
-        alignments = torch.cat(
-            alignments,
-            dim=1
+        ############################################
+        # PostNet Refinement
+        ############################################
+
+        mel_outputs_postnet = self.postnet(
+            mel_outputs
         )
+
+        mel_outputs_postnet = (
+            mel_outputs
+            + mel_outputs_postnet
+        )
+
+        ############################################
+        # Return Outputs
+        ############################################
 
         return (
             mel_outputs,
+            mel_outputs_postnet,
             stop_outputs,
-            alignments
+            attention_weights
         )
