@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from configs.config import Config
 
 
 class Encoder(nn.Module):
@@ -21,8 +22,8 @@ class Encoder(nn.Module):
 
     def __init__(
         self,
-        embedding_dim=256,
-        encoder_dim=256,
+        embedding_dim: int = Config.EMBEDDING_DIM,
+        encoder_dim: int = Config.ENCODER_DIM,
         kernel_size=5,
         num_convolutions=3,
         dropout=0.5
