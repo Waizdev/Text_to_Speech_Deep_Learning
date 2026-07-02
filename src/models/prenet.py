@@ -1,55 +1,74 @@
+import torch
 import torch.nn as nn
-import torch.nn.functional as F
+
+from configs.config import Config
 
 
 class Prenet(nn.Module):
     """
     Tacotron2 Prenet.
 
-    Applies two fully connected layers with
-    ReLU activation and dropout.
+    The Prenet transforms the previous mel-spectrogram frame into
+    a compact representation before it is passed to the decoder.
+
+    Architecture:
+        Linear
+            ↓
+        ReLU
+            ↓
+        Dropout
+            ↓
+        Linear
+            ↓
+        ReLU
+            ↓
+        Dropout
     """
 
     def __init__(
         self,
-        input_dim=80,
-        hidden_dim=256,
-        dropout=0.5
-    ):
+        input_dim: int = Config.N_MELS,
+        hidden_dim: int = Config.PRENET_DIM,
+        dropout: float = 0.5,
+    ) -> None:
         super().__init__()
 
-        self.layer1 = nn.Linear(
-            input_dim,
-            hidden_dim
+        self.layers = nn.Sequential(
+
+            nn.Linear(
+                input_dim,
+                hidden_dim,
+            ),
+
+            nn.ReLU(),
+
+            nn.Dropout(
+                dropout
+            ),
+
+            nn.Linear(
+                hidden_dim,
+                hidden_dim,
+            ),
+
+            nn.ReLU(),
+
+            nn.Dropout(
+                dropout
+            ),
         )
 
-        self.layer2 = nn.Linear(
-            hidden_dim,
-            hidden_dim
-        )
+    def forward(
+        self,
+        mel_frame: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Args:
+            mel_frame:
+                Shape -> [Batch, N_Mels]
 
-        self.dropout = dropout
+        Returns:
+            Shape -> [Batch, Prenet Dim]
+        """
 
-    def forward(self, x):
-
-        x = F.relu(
-            self.layer1(x)
-        )
-
-        x = F.dropout(
-            x,
-            p=self.dropout,
-            training=True
-        )
-
-        x = F.relu(
-            self.layer2(x)
-        )
-
-        x = F.dropout(
-            x,
-            p=self.dropout,
-            training=True
-        )
-
-        return x
+        return self.layers(mel_frame)
