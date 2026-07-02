@@ -1,8 +1,3 @@
-"""
-Central configuration file for the Text-to-Speech project.
-"""
-
-
 class Config:
 
     # ==================================================
@@ -13,13 +8,23 @@ class Config:
 
     N_MELS = 80
 
+    N_FFT = 1024
+
+    HOP_LENGTH = 256
+
+    WIN_LENGTH = 1024
+
+    FMIN = 0
+
+    FMAX = 8000
+
     # ==================================================
     # Text
     # ==================================================
 
-    VOCAB_SIZE = 50
+    VOCAB_SIZE = 80
 
-    PADDING_IDX = 0
+    MAX_TEXT_LENGTH = 200
 
     # ==================================================
     # Embedding
@@ -33,11 +38,57 @@ class Config:
 
     ENCODER_DIM = 256
 
+    ENCODER_CONV_LAYERS = 3
+
     ENCODER_KERNEL_SIZE = 5
 
-    ENCODER_CONVOLUTIONS = 3
-
     ENCODER_DROPOUT = 0.5
+
+    # ==================================================
+    # Attention
+    # ==================================================
+
+    ATTENTION_DIM = 128
+
+    ATTENTION_RNN_DIM = 256
+
+    ATTENTION_LOCATION_FILTERS = 32
+
+    ATTENTION_LOCATION_KERNEL_SIZE = 31
+
+    # ==================================================
+    # Decoder
+    # ==================================================
+
+    PRENET_DIM = 256
+
+    PRENET_DROPOUT = 0.5
+
+    DECODER_DIM = 256
+
+    # ==================================================
+    # Mel Projection
+    # ==================================================
+
+    MEL_DIM = N_MELS
+
+    # ==================================================
+    # Stop Token
+    # ==================================================
+
+    STOP_THRESHOLD = 0.5
+
+    # ==================================================
+    # PostNet
+    # ==================================================
+
+    POSTNET_DIM = 512
+
+    POSTNET_CONV_LAYERS = 5
+
+    POSTNET_KERNEL_SIZE = 5
+
+    POSTNET_DROPOUT = 0.5
 
     # ==================================================
     # Training
@@ -49,4 +100,6 @@ class Config:
 
     EPOCHS = 100
 
-    DEVICE = "cuda"
+    TEACHER_FORCING_RATIO = 1.0
+
+    MAX_DECODER_STEPS = 1000
