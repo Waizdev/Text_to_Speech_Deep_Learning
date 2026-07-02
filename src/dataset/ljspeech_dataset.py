@@ -2,7 +2,7 @@ import os
 
 import pandas as pd
 from torch.utils.data import Dataset
-
+from Preprocessing.text_processor import TextProcessor
 from Preprocessing.audio_loader import load_audio
 from Preprocessing.mel_spectrogram import generate_mel_spectrogram
 
@@ -34,6 +34,7 @@ class LJSpeechDataset(Dataset):
                 "normalized_text"
             ]
         )
+        self.text_processor = TextProcessor()
 
     def __len__(self):
         """
@@ -50,6 +51,7 @@ class LJSpeechDataset(Dataset):
 
         file_id = row["id"]
         text = row["normalized_text"]
+        text_sequence = self.text_processor.text_to_sequence(text)
 
         audio_path = os.path.join(
             self.dataset_path,
@@ -67,6 +69,7 @@ class LJSpeechDataset(Dataset):
         sample = {
             "id": file_id,
             "text": text,
+            "text_sequence": text_sequence,
             "mel": mel_spectrogram
         }
 
